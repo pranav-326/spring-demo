@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/software-engineers")
+@RequestMapping("/software-engineers")
 public class SoftwareEngControllers {
     private final SoftwareEngineerService softwareEngineerService;
 

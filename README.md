@@ -3,7 +3,7 @@
 It handles Software Engineer entities using Spring Boot with postgres as a database. My first learning towards backend with Java using Spring-Boot and Hibernate/JPA
 
 
-Ping at *localhost:8080/software-engineers*
+Ping at `localhost:8080/software-engineers`
 
 ### Endpoints
 

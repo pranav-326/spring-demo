@@ -25,8 +25,6 @@ public class SoftwareEngineerService {
     public SoftwareEngineer getSoftwareEngineerByID(Integer id) {
          return sfer.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, id+" not found"));
     }
-
-
     public void deleteById(Integer id) {
         sfer.deleteById(id);
     }

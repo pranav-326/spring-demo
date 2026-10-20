@@ -1,35 +1,173 @@
 # Employee Management Demo
-### This is a RESTful API built using Spring boot and JPA/Hibernate
-It handles Software Engineer entities using Spring Boot with postgres as a database. My first learning towards backend with Java using Spring-Boot and Hibernate/JPA
 
+A RESTful API built with Spring Boot, JPA/Hibernate and PostgreSQL. It manages Software Engineer entities and is secured with stateless JWT authentication and role-based authorization.
 
-Ping at `localhost:8080/software-engineers`
+This is a learning project: my first steps into backend development with Java and Spring Boot.
 
-### Endpoints
+## Tech stack
 
-`GET`
-```
-/get-engineers 
-```
-For getting all the stored engineers in the database
+- Java, Spring Boot 4.1.0
+- Spring Data JPA / Hibernate
+- PostgreSQL
+- Spring Security with the OAuth2 Resource Server (Nimbus JOSE + JWT), HS256-signed tokens
+- BCrypt password hashing
 
----
-`POST`
-```
-/post-engineer
-```
-Creating a new Software Engineer by adding details as json in the request body
+## Getting started
 
----
-`GET`
-```
-/get-by-id/{id}
-```
-For getting the Engineer by his ID 
+### 1. Prerequisites
 
----
-`DELETE`
+- JDK installed (use the version set in `pom.xml`)
+- Maven
+- A running PostgreSQL instance with an empty database created for this app
+
+### 2. Configure the database
+
+Set your connection details in `src/main/resources/application.properties`:
+
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/<your-db-name>
+spring.datasource.username=<your-db-user>
+spring.datasource.password=<your-db-password>
+spring.jpa.hibernate.ddl-auto=update
 ```
-/{id}
+
+### 3. Configure the JWT secret
+
+The signing secret is read from an environment variable and must never be committed to Git.
+
+```bash
+# generate a random 256-bit secret
+openssl rand -base64 32
+
+# export it before starting the app
+export JWT_SECRET="<paste the generated value>"
 ```
-Delete the engineer with the that specific ID
+
+`application.properties` reads it with:
+
+```properties
+jwt.secret=${JWT_SECRET}
+```
+
+### 4. Run
+
+```bash
+mvn spring-boot:run
+```
+
+The API starts on `http://localhost:8080`.
+
+## How authentication works
+
+```
+1. Register   POST /auth/register   -> user saved (password hashed with BCrypt)
+2. Login      POST /auth/login      -> credentials checked -> signed JWT returned
+3. Use        any other request + "Authorization: Bearer <token>"
+```
+
+- The server stores no session. Every request is verified from the token alone.
+- Tokens are signed with HS256, expire after **1 day**, and carry the claims `iss`, `sub` (username), `iat`, `exp` and `role`.
+- CSRF protection is disabled on purpose: the token is sent in a header by the client, not attached automatically by the browser as a cookie.
+- Tokens cannot be revoked before they expire.
+
+## Auth endpoints
+
+These two endpoints are public.
+
+### Register
+
+`POST /auth/register`
+
+```json
+{
+  "username": "user1",
+  "password": "your-password"
+}
+```
+
+Returns `201 Created` with the username. Every new account gets the `ROLE_USER` role.
+
+### Login
+
+`POST /auth/login`
+
+```json
+{
+  "username": "user1",
+  "password": "your-password"
+}
+```
+
+Returns `200 OK` with the JWT as plain text. A wrong username or password returns `401 Unauthorized`.
+
+## Software Engineer endpoints
+
+Base path: `localhost:8080/software-engineers`
+
+All endpoints below require the header `Authorization: Bearer <token>`.
+
+| Method | Path | Description | Access |
+|---|---|---|---|
+| `GET` | `/get-engineers` | Get all stored engineers | Any logged-in user |
+| `GET` | `/get-by-id/{id}` | Get an engineer by ID | Any logged-in user |
+| `POST` | `/post-engineer` | Create an engineer (JSON body) | `ADMIN` only |
+| `DELETE` | `/{id}` | Delete the engineer with that ID | `ADMIN` only |
+
+### Response codes
+
+| Code | Meaning |
+|---|---|
+| `200` / `201` | Success |
+| `401` | No token, invalid token, tampered token or expired token |
+| `403` | Valid token, but your role is not allowed to do this |
+
+## Using the app (step by step)
+
+1. **Start the app** with the database running and `JWT_SECRET` exported.
+2. **Register** a user: `POST /auth/register` with a username and password.
+3. **Log in:** `POST /auth/login` with the same credentials. Copy the token from the response.
+4. **Call a protected endpoint.** In Postman, open the **Authorization** tab, choose **Bearer Token**, and paste the token. With curl:
+
+   ```bash
+   curl http://localhost:8080/software-engineers/get-engineers \
+     -H "Authorization: Bearer <token>"
+   ```
+
+5. **Try an admin action.** A new user gets `403` on `POST` and `DELETE`. To make an admin, promote a user directly in the database, then **log in again** to get a new token (roles are read from the token, so an old token keeps the old role):
+
+   ```sql
+   UPDATE users SET role = 'ROLE_ADMIN' WHERE username = 'user1';
+   ```
+
+6. **Create an engineer** as the admin:
+
+   ```bash
+   curl -X POST http://localhost:8080/software-engineers/post-engineer \
+     -H "Authorization: Bearer <admin-token>" \
+     -H "Content-Type: application/json" \
+     -d '{ ... engineer fields ... }'
+   ```
+
+## Schema of the tables
+
+### software_engineer
+| Column        | Type                   | Collation | Nullable | Default                          |
+| ------------- | ---------------------- | --------- | -------- | -------------------------------- |
+| `id`          | integer                | —         | not null | generated by default as identity |
+| `name`        | character varying(255) | —         | Yes      | —                                |
+| `tech_stacks` | character varying(255) | —         | Yes      | —                                |
+
+### users
+| Column     | Type                   | Collation | Nullable | Default                          |
+| ---------- | ---------------------- | --------- | -------- | -------------------------------- |
+| `id`       | integer                | —         | not null | generated by default as identity |
+| `password` | character varying(255) | —         | Yes      | —                                |
+| `role`     | character varying(255) | —         | Yes      | —                                |
+| `username` | character varying(255) | —         | not null | —                                |
+
+## Security notes
+
+- Passwords are stored as BCrypt hashes, never as plain text.
+- The signing secret lives in an environment variable, not in the repository.
+- Public registration always creates `ROLE_USER`; admins can only be created through the database.
+- Planned next: OAuth2 with an external authorization server (RS256 and JWKS), then reuse this setup in the Media Tracker project.

@@ -14,21 +14,21 @@ import java.util.List;
 
 @Service
 public class TokenService {
-    private final JwtEncoder jwtEncoder;
-    public TokenService(JwtEncoder jwtEncoder) {
-        this.jwtEncoder=jwtEncoder;
-    }
-    public String generateToken(User user) {
-        Instant now=Instant.now();
-        List<String> roles=user.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList();
-        JwtClaimsSet claims = JwtClaimsSet.builder()
-                .issuer("jwtIssuer")
-                .issuedAt(now)
-                .expiresAt(now.plus(20, ChronoUnit.SECONDS))
-                .subject(user.getUsername())
-                .claim("role", roles)
-                .build();
-        JwsHeader header=JwsHeader.with(MacAlgorithm.HS256).build();
-        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
-    }
+//    private final JwtEncoder jwtEncoder;
+//    public TokenService(JwtEncoder jwtEncoder) {
+//        this.jwtEncoder=jwtEncoder;
+//    }
+//    public String generateToken(User user) {
+//        Instant now=Instant.now();
+//        List<String> roles=user.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList();
+//        JwtClaimsSet claims = JwtClaimsSet.builder()
+//                .issuer("jwtIssuer")
+//                .issuedAt(now)
+//                .expiresAt(now.plus(20, ChronoUnit.SECONDS))
+//                .subject(user.getUsername())
+//                .claim("role", roles)
+//                .build();
+//        JwsHeader header=JwsHeader.with(MacAlgorithm.HS256).build();
+//        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+//    }
 }

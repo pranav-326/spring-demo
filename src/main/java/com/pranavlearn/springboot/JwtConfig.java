@@ -24,8 +24,8 @@ public class JwtConfig {
     public JwtEncoder jwtEncoder(SecretKey key) {
         return new NimbusJwtEncoder(new ImmutableSecret<>(key));
     }
-    @Bean
-    public JwtDecoder jwtDecoder(SecretKey key) {
-        return NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
-    }
+//    @Bean
+//    public JwtDecoder jwtDecoder(SecretKey key) {
+//        return NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
+//    }
 }

@@ -1,6 +1,6 @@
 # Employee Management Demo
 
-A RESTful API built with Spring Boot, JPA/Hibernate and PostgreSQL. It manages Software Engineer entities and is secured with stateless JWT authentication and role-based authorization.
+A RESTful API built with Spring Boot, Spring Data JPA/Hibernate, and PostgreSQL. It manages Software Engineer entities and uses GitHub OAuth2 login with role-based authorization.
 
 This is a learning project: my first steps into backend development with Java and Spring Boot.
 
@@ -9,16 +9,18 @@ This is a learning project: my first steps into backend development with Java an
 - Java, Spring Boot 4.1.0
 - Spring Data JPA / Hibernate
 - PostgreSQL
-- Spring Security with the OAuth2 Resource Server (Nimbus JOSE + JWT), HS256-signed tokens
-- BCrypt password hashing
+- Spring Security
+- GitHub OAuth2 Login
+- Role-based authorization using Spring Security authorities
 
 ## Getting started
 
 ### 1. Prerequisites
 
-- JDK installed (use the version set in `pom.xml`)
+- JDK version configured in `pom.xml`
 - Maven
 - A running PostgreSQL instance with an empty database created for this app
+- A GitHub OAuth App
 
 ### 2. Configure the database
 
@@ -28,146 +30,187 @@ Set your connection details in `src/main/resources/application.properties`:
 spring.datasource.url=jdbc:postgresql://localhost:5432/<your-db-name>
 spring.datasource.username=<your-db-user>
 spring.datasource.password=<your-db-password>
+
 spring.jpa.hibernate.ddl-auto=update
 ```
 
-### 3. Configure the JWT secret
+### 3. Configure GitHub OAuth2
 
-The signing secret is read from an environment variable and must never be committed to Git.
+Create a GitHub OAuth App in GitHub Developer Settings.
 
-```bash
-# generate a random 256-bit secret
-openssl rand -base64 32
+Set the authorization callback URL to:
 
-# export it before starting the app
-export JWT_SECRET="<paste the generated value>"
+```text
+http://localhost:8081/login/oauth2/code/github
 ```
 
-`application.properties` reads it with:
+Configure these properties in `application.properties`:
 
 ```properties
-jwt.secret=${JWT_SECRET}
+spring.security.oauth2.client.registration.github.client-id=${GITHUB_CLIENT_ID}
+spring.security.oauth2.client.registration.github.client-secret=${GITHUB_CLIENT_SECRET}
+spring.security.oauth2.client.registration.github.scope=read:user
 ```
 
-### 4. Run
+Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in your environment or IDE run configuration.
+
+Never commit OAuth client secrets to Git.
+
+### 4. Configure administrator accounts
+
+The application uses an allowlist of GitHub usernames to determine which authenticated users receive administrator privileges.
+
+For example:
+
+```properties
+app.security.admin-users=<github-username>,<another-github-username>
+```
+
+Replace the placeholders with the GitHub usernames you trust.
+
+- Users on the allowlist receive `ROLE_ADMIN`.
+- Other authenticated GitHub users receive `ROLE_USER`.
+- Only trusted accounts should be granted administrator privileges.
+
+The property name must match the one used by your custom OAuth2 user service.
+
+### 5. Run the application
+
+Start PostgreSQL and run:
 
 ```bash
 mvn spring-boot:run
 ```
 
-The API starts on `http://localhost:8080`.
+The application starts at:
+
+```text
+http://localhost:8081
+```
 
 ## How authentication works
 
-```
-1. Register   POST /auth/register   -> user saved (password hashed with BCrypt)
-2. Login      POST /auth/login      -> credentials checked -> signed JWT returned
-3. Use        any other request + "Authorization: Bearer <token>"
-```
+```text
+1. Login
+   User starts GitHub login.
 
-- The server stores no session. Every request is verified from the token alone.
-- Tokens are signed with HS256, expire after **1 day**, and carry the claims `iss`, `sub` (username), `iat`, `exp` and `role`.
-- CSRF protection is disabled on purpose: the token is sent in a header by the client, not attached automatically by the browser as a cookie.
-- Tokens cannot be revoked before they expire.
+2. OAuth2 authentication
+   GitHub authenticates the user and redirects
+   back to the Spring Boot application.
 
-## Auth endpoints
+3. Role assignment
+   The custom OAuth2 user service checks the
+   GitHub username against the administrator allowlist.
 
-These two endpoints are public.
+4. Session creation
+   Spring Security maintains the authenticated
+   user in a server-side session.
 
-### Register
-
-`POST /auth/register`
-
-```json
-{
-  "username": "user1",
-  "password": "your-password"
-}
+5. API access
+   The client sends its session cookie with
+   requests to protected endpoints.
 ```
 
-Returns `201 Created` with the username. Every new account gets the `ROLE_USER` role.
-
-### Login
-
-`POST /auth/login`
-
-```json
-{
-  "username": "user1",
-  "password": "your-password"
-}
-```
-
-Returns `200 OK` with the JWT as plain text. A wrong username or password returns `401 Unauthorized`.
+- The current application uses session-based authentication.
+- GitHub authenticates the user; the application determines their authorization role.
+- The API does not currently use application-issued JWT bearer tokens.
+- Session cookies are sensitive credentials and must be protected.
 
 ## Software Engineer endpoints
 
-Base path: `localhost:8080/software-engineers`
+Base URL:
 
-All endpoints below require the header `Authorization: Bearer <token>`.
+```text
+http://localhost:8081/software-engineers
+```
+
+All endpoints require an authenticated session.
 
 | Method | Path | Description | Access |
 |---|---|---|---|
-| `GET` | `/get-engineers` | Get all stored engineers | Any logged-in user |
-| `GET` | `/get-by-id/{id}` | Get an engineer by ID | Any logged-in user |
-| `POST` | `/post-engineer` | Create an engineer (JSON body) | `ADMIN` only |
-| `DELETE` | `/{id}` | Delete the engineer with that ID | `ADMIN` only |
+| `GET` | `/get-engineers` | Get all stored engineers | Authenticated users |
+| `GET` | `/get-by-id/{id}` | Get an engineer by ID | Authenticated users |
+| `POST` | `/post-engineer` | Create a software engineer | `ROLE_ADMIN` |
+| `DELETE` | `/{id}` | Delete a software engineer | `ROLE_ADMIN` |
+
+The exact paths depend on the controller mappings configured in the application.
 
 ### Response codes
 
 | Code | Meaning |
 |---|---|
-| `200` / `201` | Success |
-| `401` | No token, invalid token, tampered token or expired token |
-| `403` | Valid token, but your role is not allowed to do this |
+| `200` / `201` | Request succeeded |
+| `302` | Redirect, potentially to GitHub login |
+| `401` | Authentication is missing or invalid |
+| `403` | Authenticated user lacks the required authority |
 
-## Using the app (step by step)
+## Using the application
 
-1. **Start the app** with the database running and `JWT_SECRET` exported.
-2. **Register** a user: `POST /auth/register` with a username and password.
-3. **Log in:** `POST /auth/login` with the same credentials. Copy the token from the response.
-4. **Call a protected endpoint.** In Postman, open the **Authorization** tab, choose **Bearer Token**, and paste the token. With curl:
+### 1. Log in with GitHub
 
-   ```bash
-   curl http://localhost:8080/software-engineers/get-engineers \
-     -H "Authorization: Bearer <token>"
-   ```
+Open:
 
-5. **Try an admin action.** A new user gets `403` on `POST` and `DELETE`. To make an admin, promote a user directly in the database, then **log in again** to get a new token (roles are read from the token, so an old token keeps the old role):
+```text
+http://localhost:8081/oauth2/authorization/github
+```
 
-   ```sql
-   UPDATE users SET role = 'ROLE_ADMIN' WHERE username = 'user1';
-   ```
+Complete the GitHub login flow. Spring Security processes the callback and creates an authenticated session.
 
-6. **Create an engineer** as the admin:
+### 2. Call a protected endpoint
 
-   ```bash
-   curl -X POST http://localhost:8080/software-engineers/post-engineer \
-     -H "Authorization: Bearer <admin-token>" \
-     -H "Content-Type: application/json" \
-     -d '{ ... engineer fields ... }'
-   ```
+After logging in, the browser stores the application's session cookie.
 
-## Schema of the tables
+To call the API through Postman:
 
-### software_engineer
-| Column        | Type                   | Collation | Nullable | Default                          |
-| ------------- | ---------------------- | --------- | -------- | -------------------------------- |
-| `id`          | integer                | —         | not null | generated by default as identity |
-| `name`        | character varying(255) | —         | Yes      | —                                |
-| `tech_stacks` | character varying(255) | —         | Yes      | —                                |
+1. Log in through your browser.
+2. Open Chrome DevTools.
+3. Go to **Application → Cookies → `http://localhost:8081`**.
+4. Identify the application's session cookie.
+5. Configure the same cookie in Postman's Cookies manager for `localhost`.
+6. Send a GET request to the appropriate endpoint.
 
-### users
-| Column     | Type                   | Collation | Nullable | Default                          |
-| ---------- | ---------------------- | --------- | -------- | -------------------------------- |
-| `id`       | integer                | —         | not null | generated by default as identity |
-| `password` | character varying(255) | —         | Yes      | —                                |
-| `role`     | character varying(255) | —         | Yes      | —                                |
-| `username` | character varying(255) | —         | not null | —                                |
+Never share or commit the session cookie.
+
+### 3. Test administrator access
+
+Add the trusted GitHub username to `app.security.admin-users`.
+
+Restart the application and log in again so the new session receives the updated authorities.
+
+- An authenticated ordinary user can access GET endpoints.
+- An administrator can access GET, POST, and DELETE endpoints.
+- An ordinary user receives `403 Forbidden` for administrator-only operations.
+
+## Database schema
+
+### `software_engineer`
+
+| Column | Type | Nullable |
+|---|---|---|
+| `id` | integer | No |
+| `name` | character varying(255) | Yes |
+| `tech_stacks` | character varying(255) | Yes |
+
+### `users`
+
+The application may retain a `users` table for local accounts or other application-specific data. GitHub OAuth2 login does not automatically require this table.
+
+If persistent application users are introduced later, store provider identifiers and application roles in the database rather than relying solely on GitHub profile data.
 
 ## Security notes
 
-- Passwords are stored as BCrypt hashes, never as plain text.
-- The signing secret lives in an environment variable, not in the repository.
-- Public registration always creates `ROLE_USER`; admins can only be created through the database.
-- Planned next: OAuth2 with an external authorization server (RS256 and JWKS), then reuse this setup in the Media Tracker project.
+- OAuth client secrets must be stored in environment variables or a secrets manager.
+- Administrator roles must be assigned by trusted server-side logic.
+- A successful GitHub login does not automatically grant administrator access.
+- Session cookies must be protected and should not be shared.
+- CSRF protection requires careful consideration when browser cookies authenticate requests.
+- For production deployments, use HTTPS and secure cookie settings.
+- GitHub OAuth2 login does not automatically make the REST API stateless.
+
+## Planned improvements
+
+- Introduce stateless API authentication by issuing an application JWT after GitHub login.
+- Configure the API as an OAuth2 Resource Server that validates application-issued tokens.
+- Persist application users and roles in PostgreSQL.
+- Add account management and authorization tests.
+- Improve production configuration and security.
